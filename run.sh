@@ -13,4 +13,5 @@ qemu-system-x86_64 \
     -net none \
     -m 1024 \
     -kernel $HOME/hack/linux/arch/x86/boot/bzImage  \
-    -append "console=ttyS0,115200"
+    -no-reboot \
+    -append "console=ttyS0,115200 panic=-1"
