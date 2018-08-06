@@ -3,56 +3,74 @@ package main
 import (
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/u-root/u-root/pkg/cpio"
 )
 
-// TODO: compute this all at runtime from the roots
-// of "lsblk", "mk2fs", and "sfdisk" only.
-var files = []string{
-	"/bin/lsblk",
-	"/lib/x86_64-linux-gnu/libblkid.so.1",
-	"/lib/x86_64-linux-gnu/libblkid.so.1.1.0",
-	"/lib/x86_64-linux-gnu/libc.so.6",
-	"/lib/x86_64-linux-gnu/libc-2.24.so",
-	"/lib/x86_64-linux-gnu/libcom_err.so.2",
-	"/lib/x86_64-linux-gnu/libcom_err.so.2.1",
-	"/lib/x86_64-linux-gnu/libdl.so.2",
-	"/lib/x86_64-linux-gnu/libdl-2.24.so",
-	"/lib/x86_64-linux-gnu/libe2p.so.2",
-	"/lib/x86_64-linux-gnu/libe2p.so.2.3",
-	"/lib/x86_64-linux-gnu/libext2fs.so.2",
-	"/lib/x86_64-linux-gnu/libext2fs.so.2.4",
-	"/lib/x86_64-linux-gnu/libfdisk.so.1",
-	"/lib/x86_64-linux-gnu/libfdisk.so.1.1.0",
-	"/lib/x86_64-linux-gnu/libpthread.so.0",
-	"/lib/x86_64-linux-gnu/libpthread-2.24.so",
-	"/lib/x86_64-linux-gnu/libsmartcols.so.1",
-	"/lib/x86_64-linux-gnu/libsmartcols.so.1.1.0",
-	"/lib/x86_64-linux-gnu/libtinfo.so.5",
-	"/lib/x86_64-linux-gnu/libtinfo.so.5.9",
-	"/lib/x86_64-linux-gnu/libuuid.so.1",
-	"/lib/x86_64-linux-gnu/libuuid.so.1.3.0",
-	"/lib/x86_64-linux-gnu/ld-2.24.so",
-	"/lib/x86_64-linux-gnu/libmount.so.1",
-	"/lib/x86_64-linux-gnu/libmount.so.1.1.0",
-	"/lib/x86_64-linux-gnu/libselinux.so.1",
-	"/lib/x86_64-linux-gnu/librt.so.1",
-	"/lib/x86_64-linux-gnu/librt-2.24.so",
-	"/lib/x86_64-linux-gnu/libudev.so.1",
-	"/lib/x86_64-linux-gnu/libudev.so.1.6.5",
-	"/lib/x86_64-linux-gnu/libpcre.so.3",
-	"/lib/x86_64-linux-gnu/libpcre.so.3.13.3",
-	"/lib64/ld-linux-x86-64.so.2",
-	"/sbin/mke2fs",
-	"/sbin/sfdisk",
-	"/etc/ld.so.conf",
-	// TODO: filepath walk /etc/ld.so.conf.d
-	"/etc/ld.so.conf.d/x86_64-linux-gnu.conf",
-	"/etc/ld.so.conf.d/libc.conf",
+func getFiles() (ret []string) {
+	set := map[string]bool{}
+
+	var add func(string)
+	add = func(f string) {
+		if set[f] {
+			return
+		}
+		log.Printf("add %q", f)
+		fi, err := os.Lstat(f)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		set[f] = true
+		if fi.IsDir() {
+			filepath.Walk(f, func(path string, fi os.FileInfo, err error) error {
+				if err != nil {
+					log.Fatal(err)
+				}
+				if path == f {
+					return nil
+				}
+				add(path)
+				return nil
+			})
+			return
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(f)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(f), target)
+			}
+			add(target)
+			return
+		}
+		out, _ := exec.Command("ldd", f).Output()
+		for _, f := range strings.Fields(string(out)) {
+			if strings.HasPrefix(f, "/") {
+				add(f)
+			}
+		}
+	}
+
+	add("/etc/ld.so.conf")
+	add("/etc/ld.so.conf.d")
+	add("/sbin/sfdisk")
+	add("/sbin/mke2fs")
+	add("/sbin/resize2fs")
+	add("/bin/lsblk")
+	return
 }
 
 func main() {
+	files := getFiles()
+
 	f, err := os.Create("/tmp/base.cpio")
 	if err != nil {
 		log.Fatal(err)
