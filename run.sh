@@ -9,6 +9,7 @@ rm -f disk.qcow2 || true
 qemu-img create -f qcow2 disk.qcow2 1G
 
 qemu-system-x86_64 \
+    -vga none \
     -device virtio-serial \
     -device virtconsole \
     -device virtio-net,netdev=net0 \
